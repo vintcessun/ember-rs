@@ -1,5 +1,8 @@
 # ember-rs
 
+[![CI](https://github.com/vintcessun/ember-rs/actions/workflows/cargo.yml/badge.svg)](https://github.com/vintcessun/ember-rs/actions/workflows/cargo.yml)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
+
 `ember-rs` is a `no_std` embedded TinyML inference engine for INT8 models.
 It is a fork and redesign of [microflow-rs](https://github.com/matteocarnelos/microflow-rs),
 with a pluggable backend interface so optimized hardware kernels can be swapped in without
@@ -16,7 +19,7 @@ This repository currently contains three crates:
 | Crate | Purpose |
 |---|---|
 | `ember-core` | Core `no_std` API: `KernelBackend`, operator parameter structs, errors, and status type. |
-| `ember-ref` | Pure Rust reference backend crate. It currently provides a compiling `RefBackend` stub. |
+| `ember-ref` | Pure Rust reference backend. Implements all 7 operators (`conv2d`, `depthwise_conv2d`, `fully_connected`, `avg_pool`, `max_pool`, `softmax`, `add`) with correct INT8 fixed-point quantization arithmetic. Verified against `sine.tflite`, `speech.tflite`, and `person_detect.tflite`. |
 | `ember-macros` | Procedural macro crate that reads `.tflite` models and generates backend-dispatched inference wrappers. |
 
 The ESP32-S3 backend is intentionally not part of this workspace. It lives in a separate
@@ -151,17 +154,15 @@ fn run_model<B: KernelBackend>(backend: &mut B) -> Status {
 }
 ```
 
-`ember-ref` can be used as a placeholder backend while the reference kernels are ported:
+`ember-ref` provides a complete pure-Rust INT8 reference implementation. Use it for
+host-side testing, CI, and as the baseline when bringing up a new hardware backend:
 
 ```rust
 use ember_ref::RefBackend;
 
 let mut backend = RefBackend;
+SineModel::predict_quantized(&mut backend, &input, &mut output)?;
 ```
-
-`RefBackend` currently returns `KernelError::InternalError` for every operator. It exists
-so the workspace and downstream backend integration can compile while the pure Rust
-operator implementations are migrated.
 
 ## Custom Backends
 

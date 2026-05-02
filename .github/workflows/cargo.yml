@@ -1,4 +1,4 @@
-name: Cargo
+name: CI
 
 on:
   push:
@@ -7,27 +7,51 @@ on:
     branches: [ "main" ]
 
 env:
-  CLICOLOR_FORCE: 1
   CARGO_TERM_COLOR: always
 
 jobs:
-  make:
-
+  check:
+    name: Check & Test
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v3
-    - name: Install Crates
-      run: cargo install cargo-make flip-link espup
-    - name: Install Nightly Toolchain
-      run: rustup toolchain install nightly --component rust-src
-    - name: Install ESP Toolchain
-      run: espup install
-    - name: Install AVR Toolchain
-      run: sudo apt install -y avr-libc gcc-avr pkg-config
-    - name: Add Rust Targets
-      run: rustup target add thumbv7em-none-eabihf thumbv7m-none-eabi
-    - name: Make All
-      run: |
-        . ~/export-esp.sh
-        cargo make all
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo check
+        run: cargo check --workspace
+
+      - name: cargo clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+
+  doc:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: cargo doc
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: "-D warnings"
