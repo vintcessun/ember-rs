@@ -1,145 +1,221 @@
-<p align="center">
-  <img src="assets/microflow-logo.png" width="180">
-</p>
+# ember-rs
 
-<h1 align="center">MicroFlow</h1>
-<h3 align="center">A robust and efficient TinyML inference engine</h3>
-<p align="center">
-  <a href="https://crates.io/crates/microflow"><img src="https://img.shields.io/crates/v/microflow"></a>
-  <a href="https://docs.rs/microflow"><img src="https://img.shields.io/docsrs/microflow"></a>
-  <a href="https://github.com/matteocarnelos/microflow-rs/actions/workflows/cargo.yml"><img src="https://img.shields.io/github/actions/workflow/status/matteocarnelos/microflow-rs/cargo.yml?branch=main"></a>
-</p>
+`ember-rs` is a `no_std` embedded TinyML inference engine for INT8 models.
+It is a fork and redesign of [microflow-rs](https://github.com/matteocarnelos/microflow-rs),
+with a pluggable backend interface so optimized hardware kernels can be swapped in without
+changing model-facing code.
 
-<br>
+The long-term goal is to be the Burn-style backend abstraction for embedded INT8 inference:
+the model graph is generated at compile time, while operator execution is delegated to a
+backend that implements `ember_core::KernelBackend`.
 
-MicroFlow is a robust and efficient TinyML inference engine designed for deploying machine learning models on embedded systems.
-It was developed by Matteo Carnelos as part of his master's thesis project at the [University of Padova](https://www.unipd.it/en/) in collaboration with [Grepit AB](https://github.com/GrepitAB).
+## Workspace
 
-MicroFlow uses a compiler-based approach, resulting in the following engine structure:
+This repository currently contains three crates:
 
-```mermaid
-graph LR
-  subgraph host[Host]
-    model(Neural Network Model) --> compiler(MicroFlow Compiler)
-  end
-  subgraph target[Target]
-    code(Generated Source Code) --- weights[(Weights)]
-    code --- runtime(MicroFlow Runtime)
-  end
-  compiler --> code
-  compiler --> weights
+| Crate | Purpose |
+|---|---|
+| `ember-core` | Core `no_std` API: `KernelBackend`, operator parameter structs, errors, and status type. |
+| `ember-ref` | Pure Rust reference backend crate. It currently provides a compiling `RefBackend` stub. |
+| `ember-macros` | Procedural macro crate forked from microflow. Backend-aware generation is still being migrated. |
+
+The ESP32-S3 backend is intentionally not part of this workspace. It lives in a separate
+repository as `ember-esp` and implements the same `KernelBackend` trait using Espressif
+`esp-nn` kernels.
+
+## Requirements
+
+Use nightly Rust:
+
+```bash
+cargo +nightly check --workspace
 ```
 
-MicroFlow consists of two primary components: the compiler, represented by the `microflow-macros` crate, and the runtime, represented by the `microflow` crate.
-The compiler, which runs prior to the Rust compiler, is responsible for parsing and pre-processing the model.
-It generates the necessary source code to enable inference on the model.
-On the other hand, the runtime is a `[no_std]` component designed to run on the target MCU.
-It encompasses the implementation of operators, activation functions, and quantization procedures.
+The workspace includes `rust-toolchain.toml`, so normal `cargo` commands should select
+nightly automatically in this directory.
 
-## Usage
+## Latest Usage
 
-MicroFlow utilizes Rust [Procedural Macros](https://doc.rust-lang.org/reference/procedural-macros.html) as its user interface.
-By applying the `model` macro to a `struct` and providing the model's path, the MicroFlow compiler generates a `predict()` method.
-This method can be called to perform inference on the given model.
-Currently, MicroFlow only supports models in the TensorFlow Lite format (`.tflite`).
+At the current stage, the stable contract is the low-level backend interface in
+`ember-core`. Applications and generated code call a concrete backend through static
+dispatch:
 
-Here is a minimal example showcasing the usage of MicroFlow:
+```rust
+use ember_core::{
+    Conv2dParams, ElementwiseAddParams, FullyConnectedParams, KernelBackend, PoolParams,
+    SoftmaxParams, Status,
+};
 
-```rust ignore
-use microflow::model;
+fn run_model<B: KernelBackend>(backend: &mut B) -> Status {
+    // Generated code from ember-macros will build these parameter structs
+    // from compile-time model metadata and tensor buffers.
+    //
+    // backend.conv2d(Conv2dParams { ... })?;
+    // backend.fully_connected(FullyConnectedParams { ... })?;
+    // backend.softmax(SoftmaxParams { ... })?;
 
-#[model("path/to/model.tflite")]
-struct MyModel;
+    let _ = (
+        core::mem::size_of::<Conv2dParams<'_>>(),
+        core::mem::size_of::<FullyConnectedParams<'_>>(),
+        core::mem::size_of::<PoolParams<'_>>(),
+        core::mem::size_of::<SoftmaxParams<'_>>(),
+        core::mem::size_of::<ElementwiseAddParams<'_>>(),
+    );
 
-fn main() {
-    let prediction = MyModel::predict(input_data);
+    Ok(())
 }
 ```
 
-**[Documentation](https://docs.rs/microflow)**
+`ember-ref` can be used today as a placeholder backend while the reference kernels are
+ported:
 
-## Examples
+```rust
+use ember_ref::RefBackend;
 
-The examples provided with MicroFlow can be found in the `examples` folder.
-To run an example on a target board, `cd` into the board directory for the example (e.g. `examples/arduino-uno`) and run the command:
-```bash ignore
-cargo run --example <example-name>
+let mut backend = RefBackend;
 ```
-Otherwise, to run the example locally, just run the above command in the root directory.
 
-> [!NOTE]
-> For board examples, you might need to install additional tools and configure the runner to make the example work for your setup.
+`RefBackend` currently returns `KernelError::InternalError` for every operator. It exists
+so the workspace and downstream backend integration can compile while the pure Rust
+operator implementations are migrated.
 
-## Supported Operators
+## Custom Backends
 
-Currently, MicroFlow supports the following operators and activation functions:
+To add a backend, implement the `ember_core::KernelBackend` trait for your backend type.
+The trait is the only required backend contract.
 
-| Operator          | Quantized | Tensor Type            |
-|-------------------|-----------|------------------------|
-| `FullyConnected`  | &check;   | `Tensor2D`             |
-| `Conv2D`          | &check;   | `Tensor4D`             |
-| `DepthwiseConv2D` | &check;   | `Tensor4D`             |
-| `AveragePool2D`   | &check;   | `Tensor4D`             |
-| `Reshape`         | &check;   | `Tensor2D`, `Tensor4D` |
+```rust
+use ember_core::{
+    Conv2dParams, DepthwiseConv2dParams, ElementwiseAddParams, FullyConnectedParams,
+    KernelBackend, KernelError, PoolParams, SoftmaxParams, Status,
+};
 
-| Activation Function | Quantized |
-|---------------------|-----------|
-| `ReLU`              | &check;   |
-| `ReLU6`             | &check;   |
-| `Softmax`           | &check;   |
+pub struct MyBackend;
 
-These operators and activation functions cover common building blocks for neural networks and enable efficient inference with reduced memory and computational requirements.
-However, MicroFlow's development roadmap includes plans for implementing additional operators and activation functions to expand the range of supported models.
+impl KernelBackend for MyBackend {
+    fn conv2d(&mut self, params: Conv2dParams<'_>) -> Status {
+        let _ = params;
+        Err(KernelError::InternalError)
+    }
 
-## Tested Models and MCUs
+    fn depthwise_conv2d(&mut self, params: DepthwiseConv2dParams<'_>) -> Status {
+        let _ = params;
+        Err(KernelError::InternalError)
+    }
 
-The `examples` folder contains the code used to test MicroFlow on different MCUs, including:
+    fn fully_connected(&mut self, params: FullyConnectedParams<'_>) -> Status {
+        let _ = params;
+        Err(KernelError::InternalError)
+    }
 
-- ESP32 (32-bit Xtensa)
-- ATSAMV71 (32-bit Cortex-M7F)
-- nRF52840 (32-bit Cortex-M4F)
-- LM3S6965 (32-bit Cortex-M3)
-- ATmega328 (8-bit AVR)
+    fn avg_pool(&mut self, params: PoolParams<'_>) -> Status {
+        let _ = params;
+        Err(KernelError::InternalError)
+    }
 
-The models ued to test the inference engines can be found in the `models` directory.
-These models include:
+    fn max_pool(&mut self, params: PoolParams<'_>) -> Status {
+        let _ = params;
+        Err(KernelError::InternalError)
+    }
 
-- A sine predictor
-- A speech command recognizer (TinyConv)
-- A person detector (MobileNet v1)
+    fn softmax(&mut self, params: SoftmaxParams<'_>) -> Status {
+        let _ = params;
+        Err(KernelError::InternalError)
+    }
 
-## Contributing
-
-Contributors are welcome.
-For major changes, please open an issue first to discuss what you would like to change.
-Please make sure to update tests as appropriate.
-
-## Citation
-
-The MicroFlow paper has been published in Elsevier's [Internet of Things](https://www.sciencedirect.com/science/article/pii/S2542660525000113) journal and can be cited as follows:
-
-```bibtex
-@article{CARNELOS2025101498,
-  title = {MicroFlow: An Efficient Rust-Based Inference Engine for TinyML},
-  journal = {Internet of Things},
-  volume = {30},
-  pages = {101498},
-  year = {2025},
-  issn = {2542-6605},
-  doi = {https://doi.org/10.1016/j.iot.2025.101498},
-  url = {https://www.sciencedirect.com/science/article/pii/S2542660525000113},
-  author = {Matteo Carnelos and Francesco Pasti and Nicola Bellotto},
-  keywords = {TinyML, Rust, Neural networks, Embedded systems, IoT}
+    fn add(&mut self, params: ElementwiseAddParams<'_>) -> Status {
+        let _ = params;
+        Err(KernelError::InternalError)
+    }
 }
 ```
+
+The required invoke methods are:
+
+| Method | Operator |
+|---|---|
+| `conv2d` | `CONV_2D` |
+| `depthwise_conv2d` | `DEPTHWISE_CONV_2D` |
+| `fully_connected` | `FULLY_CONNECTED` |
+| `avg_pool` | `AVERAGE_POOL_2D` |
+| `max_pool` | `MAX_POOL_2D` |
+| `softmax` | `SOFTMAX` |
+| `add` | `ADD` |
+
+Backends that need temporary memory should also override the scratch-size associated
+functions:
+
+```rust
+impl KernelBackend for MyBackend {
+    // required invoke methods omitted
+
+    fn conv2d_scratch_size(
+        input_shape: [usize; 4],
+        weights_shape: [usize; 4],
+        output_shape: [usize; 4],
+    ) -> usize {
+        let _ = (input_shape, weights_shape, output_shape);
+        0
+    }
+
+    fn depthwise_conv2d_scratch_size(
+        input_shape: [usize; 4],
+        weights_shape: [usize; 4],
+        output_shape: [usize; 4],
+    ) -> usize {
+        let _ = (input_shape, weights_shape, output_shape);
+        0
+    }
+
+    fn softmax_scratch_size(num_classes: usize) -> usize {
+        let _ = num_classes;
+        0
+    }
+}
+```
+
+These functions default to `0`, which is appropriate for backends that do not need scratch
+memory. Optimized kernels such as `esp-nn` or CMSIS-NN-style implementations should return
+the exact number of bytes needed by the corresponding operator.
+
+## Backend Semantics
+
+Parameter structs in `ember-core` intentionally mirror TFLite Micro naming and layout
+semantics. Tensor data is INT8 and operator tensors use the same layouts expected by the
+trait documentation:
+
+| Parameter type | Layout |
+|---|---|
+| `Conv2dParams` input/output | NHWC |
+| `Conv2dParams` weights | `[C_out, KH, KW, C_in]` |
+| `DepthwiseConv2dParams` input/output | NHWC |
+| `FullyConnectedParams` weights | `[output_depth, input_depth]` |
+| `SoftmaxParams` input | `[batch, num_classes]` |
+
+The trait covers the invoke phase only. Shape inference, tensor allocation, and scratch
+array sizing are intended to be handled at compile time by `ember-macros`.
+
+## Development
+
+Useful checks:
+
+```bash
+cargo +nightly fmt --all
+cargo +nightly check --workspace
+cargo +nightly clippy --workspace -- -D warnings
+cargo +nightly doc --workspace --no-deps
+```
+
+## Lineage
+
+`ember-rs` is based on `microflow-rs`, originally developed by Matteo Carnelos as part of
+his master's thesis project at the University of Padova in collaboration with Grepit AB.
 
 ## License
 
-Licensed under either of
+Licensed under either of:
 
-* Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
-* MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
-
-Copyright © 2025, [Matteo Carnelos](https://github.com/matteocarnelos)
