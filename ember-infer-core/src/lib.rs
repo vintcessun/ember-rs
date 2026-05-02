@@ -1,7 +1,7 @@
 #![no_std]
 #![deny(missing_docs)]
 
-//! # ember-core
+//! # ember-infer-core
 //!
 //! Core trait definitions for the ember-rs embedded TinyML inference engine.
 //!
@@ -15,13 +15,13 @@
 //!   (`TfLiteConvParams`, `TfLiteDepthwiseConvParams`, etc.)
 //! - The `invoke` phase is covered by this trait; the `prepare` phase
 //!   (scratch size calculation, shape inference) is handled at compile time
-//!   by `ember-macros`
+//!   by `ember-infer-macros`
 //! - `scratch_size_*` functions have default implementations returning `0`,
 //!   so pure-Rust reference backends don't need to implement them
 //!
 //! ## Backend implementations
 //!
-//! - `ember-ref`: pure Rust reference implementation (for testing / non-ESP platforms)
+//! - `ember-infer-ref`: pure Rust reference implementation (for testing / non-ESP platforms)
 //! - `ember-esp`: official ESP32-S3 backend using Espressif's esp-nn SIMD kernels
 //!   (maintained in a separate repository)
 
@@ -300,7 +300,7 @@ pub struct ElementwiseAddParams<'a> {
 ///
 /// This trait covers the **invoke phase** only. The **prepare phase**
 /// (scratch buffer sizing, shape inference) is performed at compile time by
-/// `ember-macros` via the `conv2d_scratch_size` / `softmax_scratch_size`
+/// `ember-infer-macros` via the `conv2d_scratch_size` / `softmax_scratch_size`
 /// associated functions, which have default implementations returning `0`.
 ///
 /// Implementations map directly onto TFLite Micro kernel `invoke` functions,
@@ -310,7 +310,7 @@ pub struct ElementwiseAddParams<'a> {
 /// # Implementing a backend
 ///
 /// ```rust,ignore
-/// use ember_core::{KernelBackend, Conv2dParams, Status};
+/// use ember_infer_core::{KernelBackend, Conv2dParams, Status};
 ///
 /// pub struct MyBackend;
 ///
@@ -326,7 +326,7 @@ pub struct ElementwiseAddParams<'a> {
 /// # Scratch buffers
 ///
 /// Backends that require scratch memory (e.g., esp-nn, CMSIS-NN) must override
-/// the `*_scratch_size` associated functions. The `ember-macros` proc macro calls
+/// the `*_scratch_size` associated functions. The `ember-infer-macros` proc macro calls
 /// these at compile time to allocate correctly-sized scratch arrays in the
 /// generated inference function.
 pub trait KernelBackend {
@@ -372,7 +372,7 @@ pub trait KernelBackend {
 
     /// Returns the scratch buffer size in bytes required by [`Self::conv2d`].
     ///
-    /// Called by `ember-macros` at **compile time** to allocate scratch arrays
+    /// Called by `ember-infer-macros` at **compile time** to allocate scratch arrays
     /// in the generated inference function. Corresponds to
     /// `esp_nn_get_conv_scratch_size` / CMSIS-NN equivalents.
     ///

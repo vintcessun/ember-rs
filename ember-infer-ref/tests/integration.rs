@@ -1,5 +1,5 @@
-use ember_macros::model;
-use ember_ref::RefBackend;
+use ember_infer_macros::model;
+use ember_infer_ref::RefBackend;
 
 #[model("models/sine.tflite")]
 struct SineModel;

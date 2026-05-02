@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
-    "ember-core",
-    "ember-macros",
-    "ember-ref",
+    "ember-infer-core",
+    "ember-infer-macros",
+    "ember-infer-ref",
 ]
 
 [workspace.package]

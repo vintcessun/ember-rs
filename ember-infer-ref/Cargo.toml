@@ -1,13 +1,18 @@
 [package]
-name = "ember-core"
+name = "ember-infer-ref"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["vintcessun"]
-description = "Core KernelBackend trait for ember-rs embedded INT8 inference engine"
+description = "Pure Rust reference backend for ember-rs embedded INT8 inference engine"
 repository = "https://github.com/vintcessun/ember-rs"
 readme = "../README.md"
 categories = ["embedded", "no-std", "science"]
 keywords = ["tinyml", "embedded", "inference", "no-std", "int8"]
 
 [dependencies]
+ember-infer-core = { version = "0.1.0", path = "../ember-infer-core" }
+libm = "0.2"
+
+[dev-dependencies]
+ember-infer-macros = { path = "../ember-infer-macros" }

@@ -10,7 +10,7 @@ changing model-facing code.
 
 The long-term goal is to be the Burn-style backend abstraction for embedded INT8 inference:
 the model graph is generated at compile time, while operator execution is delegated to a
-backend that implements `ember_core::KernelBackend`.
+backend that implements `ember_infer_core::KernelBackend`.
 
 ## Workspace
 
@@ -18,9 +18,9 @@ This repository currently contains three crates:
 
 | Crate | Purpose |
 |---|---|
-| `ember-core` | Core `no_std` API: `KernelBackend`, operator parameter structs, errors, and status type. |
-| `ember-ref` | Pure Rust reference backend. Implements all 7 operators (`conv2d`, `depthwise_conv2d`, `fully_connected`, `avg_pool`, `max_pool`, `softmax`, `add`) with correct INT8 fixed-point quantization arithmetic. Verified against `sine.tflite`, `speech.tflite`, and `person_detect.tflite`. |
-| `ember-macros` | Procedural macro crate that reads `.tflite` models and generates backend-dispatched inference wrappers. |
+| `ember-infer-core` | Core `no_std` API: `KernelBackend`, operator parameter structs, errors, and status type. |
+| `ember-infer-ref` | Pure Rust reference backend. Implements all 7 operators (`conv2d`, `depthwise_conv2d`, `fully_connected`, `avg_pool`, `max_pool`, `softmax`, `add`) with correct INT8 fixed-point quantization arithmetic. Verified against `sine.tflite`, `speech.tflite`, and `person_detect.tflite`. |
+| `ember-infer-macros` | Procedural macro crate that reads `.tflite` models and generates backend-dispatched inference wrappers. |
 
 The ESP32-S3 backend is intentionally not part of this workspace. It lives in a separate
 repository as `ember-esp` and implements the same `KernelBackend` trait using Espressif
@@ -46,7 +46,7 @@ The intended high-level flow is:
 
 1. Put a quantized INT8 `.tflite` model in your project, for example
    `models/sine.tflite`.
-2. Annotate a model struct with `ember-macros`.
+2. Annotate a model struct with `ember-infer-macros`.
 3. Create a backend value, such as `RefBackend` or an external `EspBackend`.
 4. Pass input and output buffers to the generated inference method.
 
@@ -55,13 +55,13 @@ The macro generates `input_len()`, `output_len()`, `scratch_len::<B>()`,
 struct:
 
 ```rust
-use ember_macros::model;
-use ember_ref::RefBackend;
+use ember_infer_macros::model;
+use ember_infer_ref::RefBackend;
 
 #[model("models/sine.tflite")]
 pub struct SineModel;
 
-fn main() -> Result<(), ember_core::KernelError> {
+fn main() -> Result<(), ember_infer_core::KernelError> {
     let mut backend = RefBackend;
 
     let input = [0i8; SineModel::input_len()];
@@ -103,18 +103,18 @@ to your platform's memory policy.
 The generated inference methods are generic over the backend:
 
 ```rust
-pub fn predict_quantized<B: ember_core::KernelBackend>(
+pub fn predict_quantized<B: ember_infer_core::KernelBackend>(
     backend: &mut B,
     input: &[i8],
     output: &mut [i8],
-) -> ember_core::Status
+) -> ember_infer_core::Status
 
-pub fn predict_quantized_with_scratch<B: ember_core::KernelBackend>(
+pub fn predict_quantized_with_scratch<B: ember_infer_core::KernelBackend>(
     backend: &mut B,
     input: &[i8],
     output: &mut [i8],
     scratch: &mut [u8],
-) -> ember_core::Status
+) -> ember_infer_core::Status
 ```
 
 `input` and `output` must match `input_len()` and `output_len()`. If either slice has the
@@ -126,11 +126,11 @@ an INT8 input buffer before calling `predict_quantized`.
 
 ### Generated Operator Calls
 
-`ember-macros` turns each supported TFLite operator into a `KernelBackend` call. In other
+`ember-infer-macros` turns each supported TFLite operator into a `KernelBackend` call. In other
 words, generated model code is equivalent to this low-level pattern:
 
 ```rust
-use ember_core::{
+use ember_infer_core::{
     Conv2dParams, ElementwiseAddParams, FullyConnectedParams, KernelBackend, PoolParams,
     SoftmaxParams, Status,
 };
@@ -154,11 +154,11 @@ fn run_model<B: KernelBackend>(backend: &mut B) -> Status {
 }
 ```
 
-`ember-ref` provides a complete pure-Rust INT8 reference implementation. Use it for
+`ember-infer-ref` provides a complete pure-Rust INT8 reference implementation. Use it for
 host-side testing, CI, and as the baseline when bringing up a new hardware backend:
 
 ```rust
-use ember_ref::RefBackend;
+use ember_infer_ref::RefBackend;
 
 let mut backend = RefBackend;
 SineModel::predict_quantized(&mut backend, &input, &mut output)?;
@@ -166,11 +166,11 @@ SineModel::predict_quantized(&mut backend, &input, &mut output)?;
 
 ## Custom Backends
 
-To add a backend, implement the `ember_core::KernelBackend` trait for your backend type.
+To add a backend, implement the `ember_infer_core::KernelBackend` trait for your backend type.
 The trait is the only required backend contract.
 
 ```rust
-use ember_core::{
+use ember_infer_core::{
     Conv2dParams, DepthwiseConv2dParams, ElementwiseAddParams, FullyConnectedParams,
     KernelBackend, KernelError, PoolParams, SoftmaxParams, Status,
 };
@@ -265,7 +265,7 @@ the exact number of bytes needed by the corresponding operator.
 
 ## Backend Semantics
 
-Parameter structs in `ember-core` intentionally mirror TFLite Micro naming and layout
+Parameter structs in `ember-infer-core` intentionally mirror TFLite Micro naming and layout
 semantics. Tensor data is INT8 and operator tensors use the same layouts expected by the
 trait documentation:
 
@@ -278,7 +278,7 @@ trait documentation:
 | `SoftmaxParams` input | `[batch, num_classes]` |
 
 The trait covers the invoke phase only. Shape inference, tensor allocation, and scratch
-array sizing are intended to be handled at compile time by `ember-macros`.
+array sizing are intended to be handled at compile time by `ember-infer-macros`.
 
 ## Development
 

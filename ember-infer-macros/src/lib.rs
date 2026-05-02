@@ -39,11 +39,11 @@ struct TensorInfo {
 ///
 /// - `input_len() -> usize`
 /// - `output_len() -> usize`
-/// - `predict_quantized<B: ember_core::KernelBackend>(...) -> ember_core::Status`
+/// - `predict_quantized<B: ember_infer_core::KernelBackend>(...) -> ember_infer_core::Status`
 ///
 /// The backend is supplied by the caller, so model code can switch between
-/// `ember-ref`, `ember-esp`, or any custom backend implementing
-/// `ember_core::KernelBackend`.
+/// `ember-infer-ref`, `ember-esp`, or any custom backend implementing
+/// `ember_infer_core::KernelBackend`.
 #[proc_macro_error]
 #[proc_macro_attribute]
 pub fn model(args: TokenStream, item: TokenStream) -> TokenStream {
@@ -186,7 +186,7 @@ pub fn model(args: TokenStream, item: TokenStream) -> TokenStream {
             }
 
             /// Maximum scratch size in bytes required by this model for backend `B`.
-            pub fn scratch_len<B: ember_core::KernelBackend>() -> usize {
+            pub fn scratch_len<B: ember_infer_core::KernelBackend>() -> usize {
                 let mut required_scratch = 0usize;
                 #scratch_queries
                 required_scratch
@@ -194,14 +194,14 @@ pub fn model(args: TokenStream, item: TokenStream) -> TokenStream {
 
             /// Run INT8 inference with a caller-supplied backend.
             ///
-            /// Pass any backend that implements [`ember_core::KernelBackend`],
-            /// for example `ember_ref::RefBackend`, `ember_esp::EspBackend`, or
+            /// Pass any backend that implements [`ember_infer_core::KernelBackend`],
+            /// for example `ember_infer_ref::RefBackend`, `ember_esp::EspBackend`, or
             /// a custom backend from your own crate.
-            pub fn predict_quantized<B: ember_core::KernelBackend>(
+            pub fn predict_quantized<B: ember_infer_core::KernelBackend>(
                 backend: &mut B,
                 input: &[i8],
                 output: &mut [i8],
-            ) -> ember_core::Status {
+            ) -> ember_infer_core::Status {
                 let mut scratch = [];
                 Self::predict_quantized_with_scratch(backend, input, output, &mut scratch)
             }
@@ -210,14 +210,14 @@ pub fn model(args: TokenStream, item: TokenStream) -> TokenStream {
             ///
             /// Use this entry point for optimized backends that need temporary
             /// memory. Allocate at least `Self::scratch_len::<B>()` bytes.
-            pub fn predict_quantized_with_scratch<B: ember_core::KernelBackend>(
+            pub fn predict_quantized_with_scratch<B: ember_infer_core::KernelBackend>(
                 backend: &mut B,
                 input: &[i8],
                 output: &mut [i8],
                 scratch: &mut [u8],
-            ) -> ember_core::Status {
+            ) -> ember_infer_core::Status {
                 if input.len() != Self::input_len() || output.len() != Self::output_len() {
-                    return Err(ember_core::KernelError::InvalidShape);
+                    return Err(ember_infer_core::KernelError::InvalidShape);
                 }
 
                 debug_assert!(
@@ -340,7 +340,7 @@ fn shape4_tokens(shape: [usize; 4]) -> TokenStream2 {
 fn quant_tokens(info: &TensorInfo) -> TokenStream2 {
     let scale = info.scale;
     let zero_point = info.zero_point;
-    quote!(ember_core::QuantParam {
+    quote!(ember_infer_core::QuantParam {
         scale: #scale,
         zero_point: #zero_point,
     })
@@ -368,7 +368,7 @@ fn emit_scratch_query(
             ));
             quote! {
                 required_scratch = required_scratch.max(
-                    <B as ember_core::KernelBackend>::conv2d_scratch_size(
+                    <B as ember_infer_core::KernelBackend>::conv2d_scratch_size(
                         #input_shape,
                         #weights_shape,
                         #output_shape,
@@ -392,7 +392,7 @@ fn emit_scratch_query(
             ));
             quote! {
                 required_scratch = required_scratch.max(
-                    <B as ember_core::KernelBackend>::depthwise_conv2d_scratch_size(
+                    <B as ember_infer_core::KernelBackend>::depthwise_conv2d_scratch_size(
                         #input_shape,
                         #weights_shape,
                         #output_shape,
@@ -407,7 +407,7 @@ fn emit_scratch_query(
             let num_classes = input_shape[1];
             quote! {
                 required_scratch = required_scratch.max(
-                    <B as ember_core::KernelBackend>::softmax_scratch_size(#num_classes)
+                    <B as ember_infer_core::KernelBackend>::softmax_scratch_size(#num_classes)
                 );
             }
         }
@@ -417,21 +417,23 @@ fn emit_scratch_query(
 
 fn activation_tokens(activation: ActivationFunctionType) -> TokenStream2 {
     match activation {
-        ActivationFunctionType::NONE => quote!(ember_core::FusedActivation::None),
-        ActivationFunctionType::RELU => quote!(ember_core::FusedActivation::Relu),
-        ActivationFunctionType::RELU6 => quote!(ember_core::FusedActivation::Relu6),
-        ActivationFunctionType::RELU_N1_TO_1 => quote!(ember_core::FusedActivation::ReluN1To1),
-        ActivationFunctionType::TANH => quote!(ember_core::FusedActivation::Tanh),
-        ActivationFunctionType::SIGN_BIT => quote!(ember_core::FusedActivation::SignBit),
-        ActivationFunctionType::SIGMOID => quote!(ember_core::FusedActivation::Sigmoid),
+        ActivationFunctionType::NONE => quote!(ember_infer_core::FusedActivation::None),
+        ActivationFunctionType::RELU => quote!(ember_infer_core::FusedActivation::Relu),
+        ActivationFunctionType::RELU6 => quote!(ember_infer_core::FusedActivation::Relu6),
+        ActivationFunctionType::RELU_N1_TO_1 => {
+            quote!(ember_infer_core::FusedActivation::ReluN1To1)
+        }
+        ActivationFunctionType::TANH => quote!(ember_infer_core::FusedActivation::Tanh),
+        ActivationFunctionType::SIGN_BIT => quote!(ember_infer_core::FusedActivation::SignBit),
+        ActivationFunctionType::SIGMOID => quote!(ember_infer_core::FusedActivation::Sigmoid),
         unsupported => abort_call_site!("unsupported fused activation: {:?}", unsupported),
     }
 }
 
 fn padding_tokens(padding: Padding) -> TokenStream2 {
     match padding {
-        Padding::SAME => quote!(ember_core::Padding::Same),
-        Padding::VALID => quote!(ember_core::Padding::Valid),
+        Padding::SAME => quote!(ember_infer_core::Padding::Same),
+        Padding::VALID => quote!(ember_infer_core::Padding::Valid),
         unsupported => abort_call_site!("unsupported padding: {:?}", unsupported),
     }
 }
@@ -541,7 +543,7 @@ fn emit_conv2d(
         #weights_decl
         #bias_decl
         #alloc_output
-        backend.conv2d(ember_core::Conv2dParams {
+        backend.conv2d(ember_infer_core::Conv2dParams {
             input: #input_expr,
             input_shape: #input_shape,
             input_quant: #input_quant,
@@ -614,7 +616,7 @@ fn emit_depthwise_conv2d(
         #weights_decl
         #bias_decl
         #alloc_output
-        backend.depthwise_conv2d(ember_core::DepthwiseConv2dParams {
+        backend.depthwise_conv2d(ember_infer_core::DepthwiseConv2dParams {
             input: #input_expr,
             input_shape: #input_shape,
             input_quant: #input_quant,
@@ -680,7 +682,7 @@ fn emit_fully_connected(
         #weights_decl
         #bias_decl
         #alloc_output
-        backend.fully_connected(ember_core::FullyConnectedParams {
+        backend.fully_connected(ember_infer_core::FullyConnectedParams {
             input: #input_expr,
             input_quant: #input_quant,
             weights: &#weights_ident,
@@ -734,7 +736,7 @@ fn emit_pool(
 
     quote! {
         #alloc_output
-        backend.#method(ember_core::PoolParams {
+        backend.#method(ember_infer_core::PoolParams {
             input: #input_expr,
             input_shape: #input_shape,
             input_quant: #input_quant,
@@ -780,7 +782,7 @@ fn emit_softmax(
 
     quote! {
         #alloc_output
-        backend.softmax(ember_core::SoftmaxParams {
+        backend.softmax(ember_infer_core::SoftmaxParams {
             input: #input_expr,
             input_shape: #input_shape,
             input_quant: #input_quant,
@@ -827,7 +829,7 @@ fn emit_add(
 
     quote! {
         #alloc_output
-        backend.add(ember_core::ElementwiseAddParams {
+        backend.add(ember_infer_core::ElementwiseAddParams {
             input1: #input1_expr,
             input1_quant: #input1_quant,
             input2: #input2_expr,

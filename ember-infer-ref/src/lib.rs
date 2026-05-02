@@ -4,7 +4,7 @@ extern crate alloc;
 
 use alloc::vec;
 use alloc::vec::Vec;
-use ember_core::{
+use ember_infer_core::{
     Conv2dParams, DepthwiseConv2dParams, ElementwiseAddParams, FullyConnectedParams,
     FusedActivation, KernelBackend, KernelError, Padding, PoolParams, QuantParam, SoftmaxParams,
     Status,
