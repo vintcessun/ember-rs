@@ -17,7 +17,7 @@ This repository currently contains three crates:
 |---|---|
 | `ember-core` | Core `no_std` API: `KernelBackend`, operator parameter structs, errors, and status type. |
 | `ember-ref` | Pure Rust reference backend crate. It currently provides a compiling `RefBackend` stub. |
-| `ember-macros` | Procedural macro crate forked from microflow. Backend-aware generation is still being migrated. |
+| `ember-macros` | Procedural macro crate that reads `.tflite` models and generates backend-dispatched inference wrappers. |
 
 The ESP32-S3 backend is intentionally not part of this workspace. It lives in a separate
 repository as `ember-esp` and implements the same `KernelBackend` trait using Espressif
@@ -34,11 +34,97 @@ cargo +nightly check --workspace
 The workspace includes `rust-toolchain.toml`, so normal `cargo` commands should select
 nightly automatically in this directory.
 
-## Latest Usage
+## Usage: Model Inference
 
-At the current stage, the stable contract is the low-level backend interface in
-`ember-core`. Applications and generated code call a concrete backend through static
-dispatch:
+ember-rs is designed so application code references a TensorFlow Lite model at compile
+time, chooses a concrete backend, and then runs inference through static dispatch.
+
+The intended high-level flow is:
+
+1. Put a quantized INT8 `.tflite` model in your project, for example
+   `models/sine.tflite`.
+2. Annotate a model struct with `ember-macros`.
+3. Create a backend value, such as `RefBackend` or an external `EspBackend`.
+4. Pass input and output buffers to the generated inference method.
+
+The macro generates `input_len()`, `output_len()`, `scratch_len::<B>()`,
+`predict_quantized(...)`, and `predict_quantized_with_scratch(...)` for the annotated
+struct:
+
+```rust
+use ember_macros::model;
+use ember_ref::RefBackend;
+
+#[model("models/sine.tflite")]
+pub struct SineModel;
+
+fn main() -> Result<(), ember_core::KernelError> {
+    let mut backend = RefBackend;
+
+    let input = [0i8; SineModel::input_len()];
+    let mut output = [0i8; SineModel::output_len()];
+
+    SineModel::predict_quantized(&mut backend, &input, &mut output)?;
+
+    Ok(())
+}
+```
+
+The important part is that the backend is a normal argument. Switching inference engines
+does not change the model wrapper:
+
+```rust,ignore
+use ember_esp::EspBackend;
+
+let mut backend = EspBackend::new();
+let input = [0i8; SineModel::input_len()];
+let mut output = [0i8; SineModel::output_len()];
+
+// Pick a fixed size appropriate for your model/backend, or derive it from
+// `SineModel::scratch_len::<EspBackend>()` during bring-up.
+const SCRATCH_LEN: usize = 4096;
+let mut scratch = [0u8; SCRATCH_LEN];
+
+SineModel::predict_quantized_with_scratch(&mut backend, &input, &mut output, &mut scratch)?;
+```
+
+For backends that need scratch memory, query the required length for that backend:
+
+```rust,ignore
+let required = SineModel::scratch_len::<EspBackend>();
+```
+
+On embedded targets you usually turn that value into a fixed stack/static buffer according
+to your platform's memory policy.
+
+The generated inference methods are generic over the backend:
+
+```rust
+pub fn predict_quantized<B: ember_core::KernelBackend>(
+    backend: &mut B,
+    input: &[i8],
+    output: &mut [i8],
+) -> ember_core::Status
+
+pub fn predict_quantized_with_scratch<B: ember_core::KernelBackend>(
+    backend: &mut B,
+    input: &[i8],
+    output: &mut [i8],
+    scratch: &mut [u8],
+) -> ember_core::Status
+```
+
+`input` and `output` must match `input_len()` and `output_len()`. If either slice has the
+wrong length, inference returns `KernelError::InvalidShape`.
+
+The current generated API is quantized-only. Feed INT8 input tensors and read INT8 output
+tensors. Floating-point convenience helpers can be added above this API by quantizing into
+an INT8 input buffer before calling `predict_quantized`.
+
+### Generated Operator Calls
+
+`ember-macros` turns each supported TFLite operator into a `KernelBackend` call. In other
+words, generated model code is equivalent to this low-level pattern:
 
 ```rust
 use ember_core::{
@@ -47,9 +133,8 @@ use ember_core::{
 };
 
 fn run_model<B: KernelBackend>(backend: &mut B) -> Status {
-    // Generated code from ember-macros will build these parameter structs
-    // from compile-time model metadata and tensor buffers.
-    //
+    // The macro emits concrete parameter structs using model metadata,
+    // embedded weights, input/output slices, and intermediate buffers.
     // backend.conv2d(Conv2dParams { ... })?;
     // backend.fully_connected(FullyConnectedParams { ... })?;
     // backend.softmax(SoftmaxParams { ... })?;
@@ -66,8 +151,7 @@ fn run_model<B: KernelBackend>(backend: &mut B) -> Status {
 }
 ```
 
-`ember-ref` can be used today as a placeholder backend while the reference kernels are
-ported:
+`ember-ref` can be used as a placeholder backend while the reference kernels are ported:
 
 ```rust
 use ember_ref::RefBackend;
