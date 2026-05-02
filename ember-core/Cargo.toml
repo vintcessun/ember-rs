@@ -1,0 +1,9 @@
+[package]
+name = "ember-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Core KernelBackend trait for ember-rs embedded INT8 inference engine"
+repository = "https://github.com/vintcessun/ember-rs"
+
+[dependencies]

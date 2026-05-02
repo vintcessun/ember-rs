@@ -1,9 +1,9 @@
 [package]
-name = "microflow-macros"
-description = "Macro crate of the MicroFlow inference engine, namely, the MicroFlow compiler"
+name = "ember-rs-macros"
+description = "Macro crate of the Ember inference engine, namely, the Ember compiler"
 authors = ["Matteo Carnelos <matteo.carnelos98@gmail.com>"]
-documentation = "https://docs.rs/microflow-macros"
-repository = "https://github.com/matteocarnelos/microflow-rs"
+documentation = "https://docs.rs/ember-rs-macros"
+repository = "https://github.com/matteocarnelos/ember-rs"
 readme = "../README.md"
 categories = ["embedded", "no-std", "science"]
 keywords = ["tinyml"]

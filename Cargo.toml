@@ -1,53 +1,13 @@
-[package]
-name = "microflow"
-description = "A robust and efficient TinyML inference engine"
-authors = ["Matteo Carnelos <matteo.carnelos98@gmail.com>"]
-documentation = "https://docs.rs/microflow"
-repository = "https://github.com/matteocarnelos/microflow-rs"
-categories = ["embedded", "no-std", "science"]
-keywords = ["tinyml"]
-license = "MIT OR Apache-2.0"
-version = "0.1.3"
-edition = "2021"
-include = [
-    "/src/**",
-    "/benches/**",
-    "/tests/**",
-    "/models/**",
-    "/Cargo.toml",
-    "/LICENSE-MIT",
-    "/LICENSE-APACHE",
-    "/README.md",
+[workspace]
+resolver = "2"
+members = [
+    "ember-core",
+    "ember-macros",
+    "ember-ref",
 ]
 
-[dependencies]
-microflow-macros = { version = "0.1", path = "microflow-macros" }
-nalgebra = { version = "0.32", default-features = false, features = ["macros"] }
-simba = { version = "0.8", default-features = false }
-libm = "0.2"
-
-[dev-dependencies]
-csv = "1.2"
-criterion = "0.5"
-
-[[bench]]
-name = "sine"
-harness = false
-
-[[bench]]
-name = "speech"
-harness = false
-
-[[bench]]
-name = "person_detect"
-harness = false
-
-[workspace]
-members = ["microflow-macros"]
-exclude = ["examples"]
-
-[patch.crates-io]
-nalgebra = { git = "https://github.com/matteocarnelos/nalgebra" }
-
-[profile.release]
-lto = true
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/vintcessun/ember-rs"

@@ -1,0 +1,9 @@
+[package]
+name = "ember-ref"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Pure Rust reference backend for ember-rs (for testing and non-ESP platforms)"
+
+[dependencies]
+ember-core = { path = "../ember-core" }
