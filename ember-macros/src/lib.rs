@@ -81,13 +81,16 @@ pub fn model(args: TokenStream, item: TokenStream) -> TokenStream {
     let mut scratch_queries = TokenStream2::new();
 
     for (index, operator) in operators.iter().enumerate() {
-        let opcode = BuiltinOperator(
-            model
-                .operator_codes()
-                .unwrap()
-                .get(operator.opcode_index() as usize)
-                .deprecated_builtin_code() as i32,
-        );
+        let op_code_table = model
+            .operator_codes()
+            .unwrap()
+            .get(operator.opcode_index() as usize);
+
+        let opcode = BuiltinOperator(if op_code_table.deprecated_builtin_code() as i32 == 127 {
+            op_code_table.builtin_code().0
+        } else {
+            op_code_table.deprecated_builtin_code() as i32
+        });
 
         let layer = match opcode {
             BuiltinOperator::CONV_2D => emit_conv2d(
@@ -192,6 +195,15 @@ pub fn model(args: TokenStream, item: TokenStream) -> TokenStream {
                 if input.len() != Self::input_len() || output.len() != Self::output_len() {
                     return Err(ember_core::KernelError::InvalidShape);
                 }
+
+                debug_assert!(
+                    scratch.len() >= Self::scratch_len::<B>(),
+                    "ember: scratch buffer too small - need {} bytes, got {}. \
+                     Allocate at least Self::scratch_len::<B>() bytes and use \
+                     predict_quantized_with_scratch.",
+                    Self::scratch_len::<B>(),
+                    scratch.len()
+                );
 
                 #body
 
@@ -387,6 +399,7 @@ fn activation_tokens(activation: ActivationFunctionType) -> TokenStream2 {
         ActivationFunctionType::RELU_N1_TO_1 => quote!(ember_core::FusedActivation::ReluN1To1),
         ActivationFunctionType::TANH => quote!(ember_core::FusedActivation::Tanh),
         ActivationFunctionType::SIGN_BIT => quote!(ember_core::FusedActivation::SignBit),
+        ActivationFunctionType::SIGMOID => quote!(ember_core::FusedActivation::Sigmoid),
         unsupported => abort_call_site!("unsupported fused activation: {:?}", unsupported),
     }
 }

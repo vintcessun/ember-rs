@@ -1875,19 +1875,20 @@ pub mod tflite {
         since = "2.0.0",
         note = "Use associated constants instead. This will no longer be generated in 2021."
     )]
-    pub const ENUM_MAX_ACTIVATION_FUNCTION_TYPE: i8 = 5;
+    pub const ENUM_MAX_ACTIVATION_FUNCTION_TYPE: i8 = 6;
     #[deprecated(
         since = "2.0.0",
         note = "Use associated constants instead. This will no longer be generated in 2021."
     )]
     #[allow(non_camel_case_types)]
-    pub const ENUM_VALUES_ACTIVATION_FUNCTION_TYPE: [ActivationFunctionType; 6] = [
+    pub const ENUM_VALUES_ACTIVATION_FUNCTION_TYPE: [ActivationFunctionType; 7] = [
         ActivationFunctionType::NONE,
         ActivationFunctionType::RELU,
         ActivationFunctionType::RELU_N1_TO_1,
         ActivationFunctionType::RELU6,
         ActivationFunctionType::TANH,
         ActivationFunctionType::SIGN_BIT,
+        ActivationFunctionType::SIGMOID,
     ];
 
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1901,9 +1902,10 @@ pub mod tflite {
         pub const RELU6: Self = Self(3);
         pub const TANH: Self = Self(4);
         pub const SIGN_BIT: Self = Self(5);
+        pub const SIGMOID: Self = Self(6);
 
         pub const ENUM_MIN: i8 = 0;
-        pub const ENUM_MAX: i8 = 5;
+        pub const ENUM_MAX: i8 = 6;
         pub const ENUM_VALUES: &'static [Self] = &[
             Self::NONE,
             Self::RELU,
@@ -1911,6 +1913,7 @@ pub mod tflite {
             Self::RELU6,
             Self::TANH,
             Self::SIGN_BIT,
+            Self::SIGMOID,
         ];
         /// Returns the variant's name or "" if unknown.
         pub fn variant_name(self) -> Option<&'static str> {
@@ -1921,6 +1924,7 @@ pub mod tflite {
                 Self::RELU6 => Some("RELU6"),
                 Self::TANH => Some("TANH"),
                 Self::SIGN_BIT => Some("SIGN_BIT"),
+                Self::SIGMOID => Some("SIGMOID"),
                 _ => None,
             }
         }
