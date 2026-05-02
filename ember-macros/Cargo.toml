@@ -1,15 +1,14 @@
 [package]
 name = "ember-macros"
-description = "Macro crate of the ember-rs inference engine, namely, the Ember compiler"
-authors = ["Matteo Carnelos <matteo.carnelos98@gmail.com>"]
-documentation = "https://docs.rs/ember-macros"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["vintcessun"]
+description = "Procedural macro for ember-rs: parses TFLite flatbuffer at compile time and generates backend-dispatched inference code"
 repository = "https://github.com/vintcessun/ember-rs"
 readme = "../README.md"
 categories = ["embedded", "no-std", "science"]
-keywords = ["tinyml"]
-license = "MIT OR Apache-2.0"
-version = "0.1.0"
-edition = "2021"
+keywords = ["tinyml", "embedded", "inference", "tflite", "no-std"]
 include = [
     "/src/**",
     "flatbuffers/**",
@@ -27,7 +26,4 @@ quote = "1.0"
 proc-macro2 = "1.0"
 proc-macro-error = "1.0"
 flatbuffers = "23.1"
-nalgebra = "0.32"
-simba = "0.8"
-byterepr = "0.1"
 structmeta = "0.3"
