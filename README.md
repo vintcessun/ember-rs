@@ -37,6 +37,25 @@ cargo +nightly check --workspace
 The workspace includes `rust-toolchain.toml`, so normal `cargo` commands should select
 nightly automatically in this directory.
 
+## Crates
+
+For an application using the generated model wrapper with the reference backend:
+
+```toml
+[dependencies]
+ember-infer-core = "0.1.0"
+ember-infer-macros = "0.1.0"
+ember-infer-ref = "0.1.0"
+```
+
+Rust imports use underscores, because Cargo package names with hyphens are exposed as
+crate names with underscores:
+
+```rust
+use ember_infer_macros::model;
+use ember_infer_ref::RefBackend;
+```
+
 ## Usage: Model Inference
 
 ember-rs is designed so application code references a TensorFlow Lite model at compile
