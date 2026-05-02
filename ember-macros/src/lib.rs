@@ -76,6 +76,10 @@ pub fn model(args: TokenStream, item: TokenStream) -> TokenStream {
 
     let input_len = tensor_len(&input_info);
     let output_len = tensor_len(&output_info);
+    let input_scale = input_info.scale;
+    let input_zero_point = input_info.zero_point;
+    let output_scale = output_info.scale;
+    let output_zero_point = output_info.zero_point;
 
     let mut body = TokenStream2::new();
     let mut scratch_queries = TokenStream2::new();
@@ -159,6 +163,26 @@ pub fn model(args: TokenStream, item: TokenStream) -> TokenStream {
             /// Number of quantized output elements written by this model.
             pub const fn output_len() -> usize {
                 #output_len
+            }
+
+            /// Per-tensor input quantization scale.
+            pub const fn input_scale() -> f32 {
+                #input_scale
+            }
+
+            /// Per-tensor input quantization zero point.
+            pub const fn input_zero_point() -> i32 {
+                #input_zero_point
+            }
+
+            /// Per-tensor output quantization scale.
+            pub const fn output_scale() -> f32 {
+                #output_scale
+            }
+
+            /// Per-tensor output quantization zero point.
+            pub const fn output_zero_point() -> i32 {
+                #output_zero_point
             }
 
             /// Maximum scratch size in bytes required by this model for backend `B`.

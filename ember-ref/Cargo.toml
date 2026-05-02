@@ -8,3 +8,6 @@ description = "Pure Rust reference backend for ember-rs (for testing and non-ESP
 [dependencies]
 ember-core = { path = "../ember-core" }
 libm = "0.2"
+
+[dev-dependencies]
+ember-macros = { path = "../ember-macros" }
