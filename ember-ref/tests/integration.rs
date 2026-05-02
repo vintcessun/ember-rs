@@ -33,6 +33,25 @@ fn assert_sine_close(x: f32, expected: f32) {
         SineModel::output_scale(),
         SineModel::output_zero_point(),
     );
+    println!(
+        "[sine] input x = {:.4}  ->  quantized input = {}",
+        x, q_input
+    );
+    println!(
+        "[sine] raw output i8 = {}  ->  dequantized f32 = {:.4}",
+        output[0], result
+    );
+    println!(
+        "[sine] expected sin({:.4}) = {:.4}  |  error = {:.4}  |  tolerance = 0.10  {}",
+        x,
+        expected,
+        (result - expected).abs(),
+        if (result - expected).abs() < 0.1 {
+            "✓"
+        } else {
+            "✗"
+        }
+    );
     assert!(
         (result - expected).abs() < 0.1,
         "expected sin({x}) ~= {expected}, got {result}; q_input={q_input}, q_output={:?}",
@@ -63,6 +82,25 @@ fn speech_compiles_and_runs() {
 
     SpeechModel::predict_quantized(&mut backend, &input, &mut output).unwrap();
 
+    let scores: Vec<f32> = output
+        .iter()
+        .map(|&v| {
+            dequantize(
+                v,
+                SpeechModel::output_scale(),
+                SpeechModel::output_zero_point(),
+            )
+        })
+        .collect();
+
+    println!("[speech] input length = {}", input.len());
+    println!("[speech] output length = {} classes", output.len());
+    for (i, score) in scores.iter().enumerate() {
+        println!("[speech]   class {} score = {:.4}", i, score);
+    }
+    let sum: f32 = scores.iter().sum();
+    println!("[speech] sum of scores = {:.4} (should be ~= 1.0)", sum);
+
     assert_eq!(output.len(), SpeechModel::output_len());
     for (index, value) in output.iter().copied().enumerate() {
         let dequantized = dequantize(
@@ -84,6 +122,25 @@ fn person_detect_compiles_and_runs() {
     let mut output = vec![0i8; PersonDetectModel::output_len()];
 
     PersonDetectModel::predict_quantized(&mut backend, &input, &mut output).unwrap();
+
+    println!("[person_detect] input length = {} pixels (i8)", input.len());
+    println!("[person_detect] output length = {} classes", output.len());
+    for (i, &v) in output.iter().enumerate() {
+        let label = match i {
+            0 => "no_person",
+            1 => "person",
+            _ => "unknown",
+        };
+        let score = dequantize(
+            v,
+            PersonDetectModel::output_scale(),
+            PersonDetectModel::output_zero_point(),
+        );
+        println!(
+            "[person_detect]   class {} ({}) raw i8 = {}  ->  score = {:.4}",
+            i, label, v, score
+        );
+    }
 
     assert_eq!(output.len(), PersonDetectModel::output_len());
 }
