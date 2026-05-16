@@ -30,6 +30,9 @@ struct TensorInfo {
     shape: Vec<usize>,
     scale: f32,
     zero_point: i32,
+    scales: Vec<f32>,
+    zero_points: Vec<i32>,
+    quantized_dimension: usize,
     tensor_type: TensorType,
 }
 
@@ -254,16 +257,24 @@ fn tensor_info(tensor: Tensor<'_>) -> TensorInfo {
     }
 
     let quant = tensor.quantization().unwrap();
-    let scale = quant.scale().and_then(|s| s.iter().next()).unwrap_or(1.0);
-    let zero_point = quant
+    let scales: Vec<f32> = quant
+        .scale()
+        .map(|s| s.iter().collect())
+        .unwrap_or_else(|| vec![1.0]);
+    let zero_points: Vec<i32> = quant
         .zero_point()
-        .and_then(|z| z.iter().next())
-        .unwrap_or(0) as i32;
+        .map(|z| z.iter().map(|v| v as i32).collect())
+        .unwrap_or_else(|| vec![0]);
+    let scale = scales.first().copied().unwrap_or(1.0);
+    let zero_point = zero_points.first().copied().unwrap_or(0);
 
     TensorInfo {
         shape,
         scale,
         zero_point,
+        scales,
+        zero_points,
+        quantized_dimension: quant.quantized_dimension() as usize,
         tensor_type: tensor.type_(),
     }
 }
@@ -344,6 +355,37 @@ fn quant_tokens(info: &TensorInfo) -> TokenStream2 {
         scale: #scale,
         zero_point: #zero_point,
     })
+}
+
+fn per_channel_quant_tokens(index: usize, info: &TensorInfo) -> (TokenStream2, TokenStream2) {
+    if info.scales.len() <= 1 {
+        return (quote!(), quote!(None));
+    }
+
+    let scales_ident = format_ident!("WEIGHTS_SCALES_{}", index);
+    let zero_points_ident = format_ident!("WEIGHTS_ZERO_POINTS_{}", index);
+    let quantized_dimension = info.quantized_dimension;
+    let scales = &info.scales;
+    let zero_points = if info.zero_points.len() == info.scales.len() {
+        info.zero_points.clone()
+    } else {
+        vec![info.zero_point; info.scales.len()]
+    };
+    let scales_len = scales.len();
+    let zero_points_len = zero_points.len();
+
+    let decl = quote! {
+        const #scales_ident: [f32; #scales_len] = [#(#scales),*];
+        const #zero_points_ident: [i32; #zero_points_len] = [#(#zero_points),*];
+    };
+    let expr = quote! {
+        Some(ember_infer_core::PerChannelQuantParam {
+            scales: &#scales_ident,
+            zero_points: &#zero_points_ident,
+            quantized_dimension: #quantized_dimension,
+        })
+    };
+    (decl, expr)
 }
 
 fn emit_scratch_query(
@@ -519,6 +561,8 @@ fn emit_conv2d(
     let weights_ident = format_ident!("WEIGHTS_{}", index);
     let weights_values = tensor_i8_data(tensors.get(weights_id), buffers);
     let weights_decl = const_i8_array(&weights_ident, &weights_values);
+    let (weights_per_channel_decl, weights_per_channel_expr) =
+        per_channel_quant_tokens(index, &weights_info);
     let (bias_decl, bias_expr) = bias_tokens(index, bias_id, tensors, buffers);
 
     let output_len = tensor_len(&output_info);
@@ -541,6 +585,7 @@ fn emit_conv2d(
 
     quote! {
         #weights_decl
+        #weights_per_channel_decl
         #bias_decl
         #alloc_output
         backend.conv2d(ember_infer_core::Conv2dParams {
@@ -550,6 +595,7 @@ fn emit_conv2d(
             weights: &#weights_ident,
             weights_shape: #weights_shape,
             weights_quant: #weights_quant,
+            weights_per_channel_quant: #weights_per_channel_expr,
             bias: #bias_expr,
             output: #output_expr,
             output_shape: #output_shape,
@@ -589,6 +635,8 @@ fn emit_depthwise_conv2d(
     let weights_ident = format_ident!("WEIGHTS_{}", index);
     let weights_values = tensor_i8_data(tensors.get(weights_id), buffers);
     let weights_decl = const_i8_array(&weights_ident, &weights_values);
+    let (weights_per_channel_decl, weights_per_channel_expr) =
+        per_channel_quant_tokens(index, &weights_info);
     let (bias_decl, bias_expr) = bias_tokens(index, bias_id, tensors, buffers);
 
     let output_len = tensor_len(&output_info);
@@ -614,6 +662,7 @@ fn emit_depthwise_conv2d(
 
     quote! {
         #weights_decl
+        #weights_per_channel_decl
         #bias_decl
         #alloc_output
         backend.depthwise_conv2d(ember_infer_core::DepthwiseConv2dParams {
@@ -623,6 +672,7 @@ fn emit_depthwise_conv2d(
             weights: &#weights_ident,
             weights_shape: #weights_shape,
             weights_quant: #weights_quant,
+            weights_per_channel_quant: #weights_per_channel_expr,
             bias: #bias_expr,
             output: #output_expr,
             output_shape: #output_shape,
@@ -663,6 +713,8 @@ fn emit_fully_connected(
     let weights_ident = format_ident!("WEIGHTS_{}", index);
     let weights_values = tensor_i8_data(tensors.get(weights_id), buffers);
     let weights_decl = const_i8_array(&weights_ident, &weights_values);
+    let (weights_per_channel_decl, weights_per_channel_expr) =
+        per_channel_quant_tokens(index, &weights_info);
     let (bias_decl, bias_expr) = bias_tokens(index, bias_id, tensors, buffers);
 
     let output_len = tensor_len(&output_info);
@@ -680,6 +732,7 @@ fn emit_fully_connected(
 
     quote! {
         #weights_decl
+        #weights_per_channel_decl
         #bias_decl
         #alloc_output
         backend.fully_connected(ember_infer_core::FullyConnectedParams {
@@ -688,6 +741,7 @@ fn emit_fully_connected(
             weights: &#weights_ident,
             weights_shape: #weights_shape,
             weights_quant: #weights_quant,
+            weights_per_channel_quant: #weights_per_channel_expr,
             bias: #bias_expr,
             output: #output_expr,
             output_depth: #output_len,

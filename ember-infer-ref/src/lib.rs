@@ -6,8 +6,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use ember_infer_core::{
     Conv2dParams, DepthwiseConv2dParams, ElementwiseAddParams, FullyConnectedParams,
-    FusedActivation, KernelBackend, KernelError, Padding, PoolParams, QuantParam, SoftmaxParams,
-    Status,
+    FusedActivation, KernelBackend, KernelError, Padding, PerChannelQuantParam, PoolParams,
+    QuantParam, SoftmaxParams, Status,
 };
 
 /// Pure Rust reference implementation of [`KernelBackend`].
@@ -39,15 +39,17 @@ impl KernelBackend for RefBackend {
         let effective_filter_w = effective_filter_size(filter_w, dilation_w);
         let pad_h = compute_padding(input_h, effective_filter_h, stride_h, params.padding);
         let pad_w = compute_padding(input_w, effective_filter_w, stride_w, params.padding);
-        let (multiplier, shift) = quantize_multiplier(
-            (params.input_quant.scale * params.weights_quant.scale / params.output_quant.scale)
-                as f64,
-        );
-
         for batch in 0..batches {
             for out_y in 0..output_h {
                 for out_x in 0..output_w {
                     for out_channel in 0..output_c {
+                        let (multiplier, shift) = output_channel_multiplier_shift(
+                            params.input_quant,
+                            params.weights_quant,
+                            params.weights_per_channel_quant,
+                            params.output_quant,
+                            out_channel,
+                        );
                         let mut acc = params
                             .bias
                             .map(|bias| bias[out_channel])
@@ -133,17 +135,19 @@ impl KernelBackend for RefBackend {
         let effective_filter_w = effective_filter_size(depthwise_dims.filter_w, dilation_w);
         let pad_h = compute_padding(input_h, effective_filter_h, stride_h, params.padding);
         let pad_w = compute_padding(input_w, effective_filter_w, stride_w, params.padding);
-        let (multiplier, shift) = quantize_multiplier(
-            (params.input_quant.scale * params.weights_quant.scale / params.output_quant.scale)
-                as f64,
-        );
-
         for batch in 0..batches {
             for out_y in 0..output_h {
                 for out_x in 0..output_w {
                     for in_channel in 0..input_c {
                         for channel_multiplier in 0..depth_multiplier {
                             let out_channel = in_channel * depth_multiplier + channel_multiplier;
+                            let (multiplier, shift) = output_channel_multiplier_shift(
+                                params.input_quant,
+                                params.weights_quant,
+                                params.weights_per_channel_quant,
+                                params.output_quant,
+                                out_channel,
+                            );
                             let mut acc = params
                                 .bias
                                 .map(|bias| bias[out_channel])
@@ -209,12 +213,14 @@ impl KernelBackend for RefBackend {
         }
         validate_bias(params.bias, output_depth)?;
 
-        let (multiplier, shift) = quantize_multiplier(
-            (params.input_quant.scale * params.weights_quant.scale / params.output_quant.scale)
-                as f64,
-        );
-
         for out_channel in 0..output_depth {
+            let (multiplier, shift) = output_channel_multiplier_shift(
+                params.input_quant,
+                params.weights_quant,
+                params.weights_per_channel_quant,
+                params.output_quant,
+                out_channel,
+            );
             let mut acc = params
                 .bias
                 .map(|bias| bias[out_channel])
@@ -547,6 +553,19 @@ fn quantize_multiplier(scale: f64) -> (i32, i32) {
     (q as i32, shift)
 }
 
+fn output_channel_multiplier_shift(
+    input_quant: QuantParam,
+    weights_quant: QuantParam,
+    weights_per_channel_quant: Option<PerChannelQuantParam<'_>>,
+    output_quant: QuantParam,
+    output_channel: usize,
+) -> (i32, i32) {
+    let weight_scale = weights_per_channel_quant
+        .and_then(|per_channel| per_channel.scales.get(output_channel).copied())
+        .unwrap_or(weights_quant.scale);
+    quantize_multiplier((input_quant.scale * weight_scale / output_quant.scale) as f64)
+}
+
 fn requantize(acc: i32, multiplier: i32, shift: i32, output_quant: QuantParam) -> i32 {
     multiply_by_quantized_multiplier(acc, multiplier, shift) + output_quant.zero_point
 }
@@ -629,6 +648,7 @@ mod tests {
                 weights: &weights,
                 weights_shape: [2, 2],
                 weights_quant: UNIT_QUANT,
+                weights_per_channel_quant: None,
                 bias: Some(&[1, -2]),
                 output: &mut output,
                 output_depth: 2,
@@ -703,6 +723,7 @@ mod tests {
                 weights: &weights,
                 weights_shape: [1, 2, 2, 1],
                 weights_quant: UNIT_QUANT,
+                weights_per_channel_quant: None,
                 bias: None,
                 output: &mut output,
                 output_shape: [1, 1, 1, 1],
@@ -735,6 +756,7 @@ mod tests {
                 weights: &weights,
                 weights_shape: [1, 2, 2, 1],
                 weights_quant: UNIT_QUANT,
+                weights_per_channel_quant: None,
                 bias: None,
                 output: &mut output,
                 output_shape: [1, 1, 1, 1],

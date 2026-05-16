@@ -70,6 +70,20 @@ pub struct QuantParam {
     pub zero_point: i32,
 }
 
+/// Optional per-channel quantization parameters for weight tensors.
+///
+/// TFLite commonly uses per-channel scales for convolution-family weights,
+/// with the quantized dimension matching the output-channel axis.
+#[derive(Clone, Copy, Debug)]
+pub struct PerChannelQuantParam<'a> {
+    /// Scale values, one per quantized channel.
+    pub scales: &'a [f32],
+    /// Zero points, one per quantized channel.
+    pub zero_points: &'a [i32],
+    /// Tensor axis the per-channel values apply to.
+    pub quantized_dimension: usize,
+}
+
 // ----------------------------------------------------------------------------
 // Error / Status - mirror TfLiteStatus
 // ----------------------------------------------------------------------------
@@ -118,6 +132,8 @@ pub struct Conv2dParams<'a> {
     pub weights_shape: [usize; 4],
     /// Weight quantization parameters (per-tensor).
     pub weights_quant: QuantParam,
+    /// Optional per-channel weight quantization parameters.
+    pub weights_per_channel_quant: Option<PerChannelQuantParam<'a>>,
     /// Optional bias tensor, stored as `int32`.
     ///
     /// Length must equal `C_out` when `Some`.
@@ -163,6 +179,8 @@ pub struct DepthwiseConv2dParams<'a> {
     pub weights_shape: [usize; 4],
     /// Weight quantization parameters (per-tensor).
     pub weights_quant: QuantParam,
+    /// Optional per-channel weight quantization parameters.
+    pub weights_per_channel_quant: Option<PerChannelQuantParam<'a>>,
     /// Optional bias tensor, stored as `int32`.
     pub bias: Option<&'a [i32]>,
     /// Output tensor buffer, written by the backend.
@@ -206,6 +224,8 @@ pub struct FullyConnectedParams<'a> {
     pub weights_shape: [usize; 2],
     /// Weight quantization parameters (per-tensor).
     pub weights_quant: QuantParam,
+    /// Optional per-channel weight quantization parameters.
+    pub weights_per_channel_quant: Option<PerChannelQuantParam<'a>>,
     /// Optional bias tensor, stored as `int32`.
     pub bias: Option<&'a [i32]>,
     /// Output tensor buffer, written by the backend.

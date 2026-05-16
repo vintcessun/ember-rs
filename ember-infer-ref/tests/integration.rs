@@ -23,11 +23,11 @@ macro_rules! matrix {
 }
 
 #[allow(unused_imports)]
-#[path = "speech.rs"]
+#[path = "fixtures/speech.rs"]
 mod speech_samples;
 
 #[allow(unused_imports)]
-#[path = "person_detect.rs"]
+#[path = "fixtures/person_detect.rs"]
 mod person_detect_samples;
 
 #[model("models/sine.tflite")]
@@ -243,7 +243,7 @@ fn person_detect_compiles_and_runs() {
     );
 
     assert_top_class("person_detect", "person", &person_scores, 1);
-    assert_top_class("person_detect", "no_person", &no_person_scores, 1);
+    assert_top_class("person_detect", "no_person", &no_person_scores, 0);
     assert_ne!(
         person_scores, no_person_scores,
         "person_detect samples should produce different outputs"
