@@ -328,7 +328,9 @@ fn tensor_i32_data(
     buffers: &flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Buffer<'_>>>,
 ) -> Vec<i32> {
     buffer_data(buffers.get(tensor.buffer() as usize))
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|chunk| i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
         .collect()
 }
