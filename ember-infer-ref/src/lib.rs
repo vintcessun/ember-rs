@@ -6,8 +6,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use ember_infer_core::{
     Conv2dParams, DepthwiseConv2dParams, ElementwiseAddParams, FullyConnectedParams,
-    FusedActivation, KernelBackend, KernelError, Padding, PerChannelQuantParam, PoolParams,
-    QuantParam, SoftmaxParams, Status,
+    FusedActivation, KernelBackend, KernelError, MulParams, Padding, PerChannelQuantParam,
+    PoolParams, QuantParam, SoftmaxParams, Status,
 };
 
 /// Pure Rust reference implementation of [`KernelBackend`].
@@ -297,6 +297,46 @@ impl KernelBackend for RefBackend {
             let rhs = (params.input2[index] as i32 - params.input2_quant.zero_point) as f32
                 * params.input2_quant.scale;
             let quantized = round_f32_to_i32((lhs + rhs) / params.output_quant.scale)
+                + params.output_quant.zero_point;
+            params.output[index] =
+                apply_activation(quantized, params.activation, params.output_quant);
+        }
+
+        Ok(())
+    }
+
+    fn mul(&mut self, params: MulParams<'_>) -> Status {
+        // Element-wise when lengths match; otherwise the shorter operand is
+        // broadcast per trailing (channel) dimension. Multiply is commutative,
+        // so treat the longer operand as the dense one.
+        let (dense, dense_q, per_ch, per_ch_q) = if params.input1.len() >= params.input2.len() {
+            (
+                params.input1,
+                params.input1_quant,
+                params.input2,
+                params.input2_quant,
+            )
+        } else {
+            (
+                params.input2,
+                params.input2_quant,
+                params.input1,
+                params.input1_quant,
+            )
+        };
+
+        if per_ch.is_empty()
+            || dense.len() % per_ch.len() != 0
+            || params.output.len() != dense.len()
+        {
+            return Err(KernelError::InvalidShape);
+        }
+
+        let channels = per_ch.len();
+        for index in 0..params.output.len() {
+            let lhs = (dense[index] as i32 - dense_q.zero_point) as f32 * dense_q.scale;
+            let rhs = (per_ch[index % channels] as i32 - per_ch_q.zero_point) as f32 * per_ch_q.scale;
+            let quantized = round_f32_to_i32((lhs * rhs) / params.output_quant.scale)
                 + params.output_quant.zero_point;
             params.output[index] =
                 apply_activation(quantized, params.activation, params.output_quant);

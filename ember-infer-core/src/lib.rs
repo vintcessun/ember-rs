@@ -310,6 +310,32 @@ pub struct ElementwiseAddParams<'a> {
     pub activation: FusedActivation,
 }
 
+/// Parameters for an element-wise (or channel-broadcast) multiply.
+///
+/// Mirrors `TfLiteMulParams` from TFLite Micro. When `input1` and `input2` have
+/// the same length the operation is element-wise. When one input is shorter and
+/// its length divides the other's, it is treated as a per-channel operand
+/// broadcast over the trailing `channels` dimension (NHWC): the shorter input is
+/// the per-channel operand of length `channels`, broadcast across
+/// `total / channels` spatial positions. Backends may swap the two operands
+/// (multiply is commutative) so the shorter one is the per-channel operand.
+pub struct MulParams<'a> {
+    /// First input tensor data, quantized as `int8`.
+    pub input1: &'a [i8],
+    /// First input quantization parameters.
+    pub input1_quant: QuantParam,
+    /// Second input tensor data, quantized as `int8`.
+    pub input2: &'a [i8],
+    /// Second input quantization parameters.
+    pub input2_quant: QuantParam,
+    /// Output tensor buffer, written by the backend.
+    pub output: &'a mut [i8],
+    /// Output quantization parameters.
+    pub output_quant: QuantParam,
+    /// Fused activation function applied to the output.
+    pub activation: FusedActivation,
+}
+
 // ----------------------------------------------------------------------------
 // KernelBackend - the central trait
 // ----------------------------------------------------------------------------
@@ -389,6 +415,11 @@ pub trait KernelBackend {
     ///
     /// Corresponds to the `invoke` function of the `ADD` kernel in TFLite Micro.
     fn add(&mut self, params: ElementwiseAddParams<'_>) -> Status;
+
+    /// Execute element-wise (or channel-broadcast) multiplication.
+    ///
+    /// Corresponds to the `invoke` function of the `MUL` kernel in TFLite Micro.
+    fn mul(&mut self, params: MulParams<'_>) -> Status;
 
     /// Returns the scratch buffer size in bytes required by [`Self::conv2d`].
     ///

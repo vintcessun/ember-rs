@@ -144,6 +144,7 @@ pub fn model(args: TokenStream, item: TokenStream) -> TokenStream {
                 emit_softmax(index, operator, &tensors, input_tensor_id, output_tensor_id)
             }
             BuiltinOperator::ADD => emit_add(operator, &tensors, input_tensor_id, output_tensor_id),
+            BuiltinOperator::MUL => emit_mul(operator, &tensors, input_tensor_id, output_tensor_id),
             BuiltinOperator::RESHAPE => {
                 emit_reshape(operator, &tensors, input_tensor_id, output_tensor_id)
             }
@@ -231,6 +232,14 @@ pub fn model(args: TokenStream, item: TokenStream) -> TokenStream {
                     Self::scratch_len::<B>(),
                     scratch.len()
                 );
+
+                // 16-byte aligned storage for intermediate activation tensors.
+                // ESP-NN's ESP32-S3 SIMD kernels assume 16-byte aligned tensors
+                // (aligned `ee.vld.128` loads that otherwise silently read
+                // shifted data); a bare `[i8; N]` is only 1-byte aligned, so we
+                // wrap each intermediate buffer to keep the fast path.
+                #[repr(C, align(16))]
+                struct __EmberAligned16<const N: usize>([i8; N]);
 
                 #body
 
@@ -485,7 +494,9 @@ fn tensor_ref(tensor_id: usize, input_tensor_id: usize) -> TokenStream2 {
         quote!(input)
     } else {
         let ident = format_ident!("tensor_{}", tensor_id);
-        quote!(&#ident)
+        // Intermediate buffers are 16-byte aligned wrappers (see
+        // `maybe_alloc_output`); reference the inner array.
+        quote!(&#ident.0)
     }
 }
 
@@ -494,7 +505,7 @@ fn tensor_mut_ref(tensor_id: usize, output_tensor_id: usize) -> TokenStream2 {
         quote!(output)
     } else {
         let ident = format_ident!("tensor_{}", tensor_id);
-        quote!(&mut #ident)
+        quote!(&mut #ident.0)
     }
 }
 
@@ -507,7 +518,9 @@ fn maybe_alloc_output(
         quote!()
     } else {
         let ident = format_ident!("tensor_{}", output_id);
-        quote!(let mut #ident = [0i8; #output_len];)
+        // Wrap in the 16-byte aligned newtype so ESP-NN's ESP32-S3 SIMD kernels
+        // (which assume aligned tensors) stay on the fast path.
+        quote!(let mut #ident = __EmberAligned16([0i8; #output_len]);)
     }
 }
 
@@ -895,6 +908,53 @@ fn emit_add(
     }
 }
 
+fn emit_mul(
+    operator: tflite_flatbuffers::tflite::Operator<'_>,
+    tensors: &flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Tensor<'_>>>,
+    input_tensor_id: usize,
+    output_tensor_id: usize,
+) -> TokenStream2 {
+    let inputs = operator.inputs().unwrap();
+    let input1_id = inputs.get(0) as usize;
+    let input2_id = inputs.get(1) as usize;
+    let output_id = operator.outputs().unwrap().get(0) as usize;
+
+    let input1_info = tensor_info(tensors.get(input1_id));
+    let input2_info = tensor_info(tensors.get(input2_id));
+    let output_info = tensor_info(tensors.get(output_id));
+    require_i8(&input1_info, "MUL input1");
+    require_i8(&input2_info, "MUL input2");
+    require_i8(&output_info, "MUL output");
+
+    let output_len = tensor_len(&output_info);
+    let alloc_output = maybe_alloc_output(output_id, output_tensor_id, output_len);
+    let input1_expr = tensor_ref(input1_id, input_tensor_id);
+    let input2_expr = tensor_ref(input2_id, input_tensor_id);
+    let output_expr = tensor_mut_ref(output_id, output_tensor_id);
+    let input1_quant = quant_tokens(&input1_info);
+    let input2_quant = quant_tokens(&input2_info);
+    let output_quant = quant_tokens(&output_info);
+    let activation = activation_tokens(
+        operator
+            .builtin_options_as_mul_options()
+            .unwrap()
+            .fused_activation_function(),
+    );
+
+    quote! {
+        #alloc_output
+        backend.mul(ember_infer_core::MulParams {
+            input1: #input1_expr,
+            input1_quant: #input1_quant,
+            input2: #input2_expr,
+            input2_quant: #input2_quant,
+            output: #output_expr,
+            output_quant: #output_quant,
+            activation: #activation,
+        })?;
+    }
+}
+
 fn emit_reshape(
     operator: tflite_flatbuffers::tflite::Operator<'_>,
     tensors: &flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Tensor<'_>>>,
@@ -913,8 +973,8 @@ fn emit_reshape(
     } else {
         let ident = format_ident!("tensor_{}", output_id);
         quote! {
-            let mut #ident = [0i8; #output_len];
-            #ident.copy_from_slice(#input_expr);
+            let mut #ident = __EmberAligned16([0i8; #output_len]);
+            #ident.0.copy_from_slice(#input_expr);
         }
     }
 }
