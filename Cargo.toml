@@ -1,13 +1,9 @@
 [workspace]
 resolver = "2"
-members = [
-    "ember-infer-core",
-    "ember-infer-macros",
-    "ember-infer-ref",
-]
+members = ["ember-infer-core", "ember-infer-macros", "ember-infer-ref"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/vintcessun/ember-rs"
